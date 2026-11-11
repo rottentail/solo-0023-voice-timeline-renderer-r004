@@ -122,6 +122,30 @@ Entry point: `PUT /v1/renders/{render_id}` with a `timeline_id` body field.
 Success is observable through the job resource, the downloaded WAV, and the
 receipt. Failure is observable through the terminal job error code.
 
+### 4. Compare two completed renders
+
+Entry point: `GET /v1/renders/{render_id}/diff/{other_render_id}`.
+
+1. The service loads both durable job records without writing anything.
+2. Any job that is not `completed`, or a completed job whose published output
+   folder is absent, produces an explicit `not_comparable` report carrying a
+   stable reason code rather than a transport error.
+3. Each present output is checked against the digest recorded in its receipt so
+   corrupted or tampered artifacts are never compared as if they were valid.
+4. Outputs with different sample rates, channel counts, or sample widths are
+   reported as a format mismatch with the exact facts listed; a different
+   format is never judged to be an audio difference.
+5. Same-format outputs are compared sample by sample at the raw PCM level. The
+   report states overall `identical` or `different`, records the receipt schema
+   versions on both sides, and locates the first differing frame and channel
+   (with both PCM values) or the length boundary where one output ends first.
+
+The comparison is a pure read: it never transitions a job, changes metadata,
+creates temporary files, or modifies outputs, and the report contains no
+wall-clock fields, so repeating the same comparison yields an identical result.
+Unknown render identifiers remain `404` and malformed identifiers remain `422`.
+
+
 ## HTTP interface
 
 - `GET /healthz`
@@ -133,6 +157,7 @@ receipt. Failure is observable through the terminal job error code.
 - `GET /v1/renders/{id}`
 - `GET /v1/renders/{id}/receipt`
 - `GET /v1/renders/{id}/output`
+- `GET /v1/renders/{id}/diff/{other_id}`
 
 Errors use a JSON envelope:
 
@@ -151,10 +176,10 @@ Errors use a JSON envelope:
 | Module | Responsibility |
 |---|---|
 | `httpapi` | HTTP routing, request limits, JSON encoding, media responses |
-| `service` | Workflow orchestration and job lifecycle |
-| `domain` | Entities, validation rules, stable errors, state transitions |
-| `audiocodec` | WAV parsing and encoding, resampling, channel mapping, signal metrics |
-| `render` | Span evaluation, crossfade mixing, normalization, receipt construction |
+| `service` | Workflow orchestration, job lifecycle, and read-only render comparison |
+| `domain` | Entities, validation rules, stable errors, state transitions, comparison result model |
+| `audiocodec` | WAV parsing and encoding, exact PCM extraction, resampling, channel mapping, signal metrics |
+| `render` | Span evaluation, crossfade mixing, normalization, receipt construction, deterministic output comparison |
 | `storage` | Atomic source, timeline, job, output, and receipt persistence |
 
 ## Engineering mechanisms
@@ -176,6 +201,10 @@ The runtime manifest exposes one bounded production smoke path per workflow:
   fails.
 - Render a crossfaded timeline, download the output, decode it, and match core
   receipt measurements.
+- Compare renders across every outcome: identical outputs, a located sample or
+  length difference, a blocking format mismatch, and explicit not-comparable
+  reasons for unready, failed, and cleaned-up artifacts; confirm repeated
+  comparisons are stable and leave every job and output unchanged.
 
 These checks use the real HTTP entry points and local storage. They are not a
 replacement for the test suite that the later task stage will add.

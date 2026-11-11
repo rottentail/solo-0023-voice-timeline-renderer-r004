@@ -68,14 +68,14 @@ func (repo *Repository) GetRenderOutput(id string) ([]byte, domain.RenderReceipt
 	var receipt domain.RenderReceipt
 	if err := readJSON(repo.path("renders", id, "receipt.json"), &receipt); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, domain.RenderReceipt{}, domain.E(domain.KindUnready, "render_not_completed", "render_id", "render output is not available")
+			return nil, domain.RenderReceipt{}, domain.E(domain.KindUnready, domain.ReasonArtifactsMissing, "render_id", "render output artifacts are not available")
 		}
 		return nil, domain.RenderReceipt{}, domain.Wrap(domain.KindInternal, "storage_error", "", "cannot read render receipt", err)
 	}
 	payload, err := os.ReadFile(repo.path("renders", id, "output.wav"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, domain.RenderReceipt{}, domain.E(domain.KindUnready, "render_not_completed", "render_id", "render output is not available")
+			return nil, domain.RenderReceipt{}, domain.E(domain.KindUnready, domain.ReasonArtifactsMissing, "render_id", "render output artifacts are not available")
 		}
 		return nil, domain.RenderReceipt{}, domain.Wrap(domain.KindInternal, "storage_error", "", "cannot read render output", err)
 	}

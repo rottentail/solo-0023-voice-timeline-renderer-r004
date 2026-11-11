@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"voice-timeline-renderer/internal/domain"
 	"voice-timeline-renderer/internal/service"
@@ -166,6 +168,38 @@ func (harness *Harness) getOutput(
 		return nil, status, fmt.Errorf("unexpected output status %d with error %s", status, envelope.Error.Code)
 	}
 	return body, status, nil
+}
+
+// compareRenders invokes the read-only render diff endpoint.
+func (harness *Harness) compareRenders(
+	ctx context.Context,
+	leftID string,
+	rightID string,
+) (domain.RenderComparison, int, error) {
+	status, body, err := harness.requestJSON(ctx, "GET", "/v1/renders/"+leftID+"/diff/"+rightID, nil)
+	if err != nil {
+		return domain.RenderComparison{}, status, err
+	}
+	var comparison domain.RenderComparison
+	if status == 200 {
+		if err := decodeBody(body, &comparison); err != nil {
+			return domain.RenderComparison{}, status, err
+		}
+	}
+	return comparison, status, nil
+}
+
+// seedJob writes a durable job record directly, simulating lifecycle states
+// that the happy-path HTTP surface cannot leave behind. It is used only by
+// the comparison workflow to reproduce unready and failed renders.
+func (harness *Harness) seedJob(job domain.RenderJob) error {
+	return harness.repo.SaveJob(job)
+}
+
+// removeRenderArtifacts simulates external cleanup of a completed render's
+// output folder while leaving its durable job record in place.
+func (harness *Harness) removeRenderArtifacts(id string) error {
+	return os.RemoveAll(filepath.Join(harness.tempDir, "renders", id))
 }
 
 func failureCode(body []byte) string {

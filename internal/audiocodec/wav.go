@@ -11,7 +11,11 @@ const (
 	pcmBitWidth   = 16
 )
 
-func DecodeWAV(data []byte) (*Clip, WAVInfo, error) {
+// DecodePCM16 parses a RIFF/WAVE payload containing 16-bit integer PCM with
+// one or two channels and returns the exact signed PCM samples without any
+// normalization. One entry per channel sample is produced in interleaved
+// order, so the frame count is len(Samples)/Channels.
+func DecodePCM16(data []byte) (samples []int16, info WAVInfo, err error) {
 	if len(data) < 12 {
 		return nil, WAVInfo{}, errors.New("file is shorter than a RIFF header")
 	}
@@ -84,25 +88,38 @@ func DecodeWAV(data []byte) (*Clip, WAVInfo, error) {
 		return nil, WAVInfo{}, errors.New("sample data is empty or not frame-aligned")
 	}
 
-	samples := make([]float32, len(sampleChunk)/2)
-	for index := range samples {
-		raw := int16(binary.LittleEndian.Uint16(sampleChunk[index*2 : index*2+2]))
-		if raw < 0 {
-			samples[index] = float32(raw) / 32768
-		} else {
-			samples[index] = float32(raw) / 32767
-		}
+	pcm := make([]int16, len(sampleChunk)/2)
+	for index := range pcm {
+		pcm[index] = int16(binary.LittleEndian.Uint16(sampleChunk[index*2 : index*2+2]))
 	}
-	frameCount := int64(len(samples) / channels)
-	return &Clip{
-		SampleRate: sampleRate,
-		Channels:   channels,
-		Samples:    samples,
-	}, WAVInfo{
+	frameCount := int64(len(pcm) / channels)
+	return pcm, WAVInfo{
 		SampleRate:    sampleRate,
 		Channels:      channels,
 		BitsPerSample: bitsPerSample,
 		FrameCount:    frameCount,
 		ByteCount:     int64(len(data)),
 	}, nil
+}
+
+// DecodeWAV parses a 16-bit PCM WAVE and exposes the signal as float32
+// samples normalized to the [-1, 1] range.
+func DecodeWAV(data []byte) (*Clip, WAVInfo, error) {
+	pcm, info, err := DecodePCM16(data)
+	if err != nil {
+		return nil, WAVInfo{}, err
+	}
+	samples := make([]float32, len(pcm))
+	for index, raw := range pcm {
+		if raw < 0 {
+			samples[index] = float32(raw) / 32768
+		} else {
+			samples[index] = float32(raw) / 32767
+		}
+	}
+	return &Clip{
+		SampleRate: info.SampleRate,
+		Channels:   info.Channels,
+		Samples:    samples,
+	}, info, nil
 }

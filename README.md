@@ -146,6 +146,74 @@ The output route returns `audio/wav`. The receipt records source digests, span
 placement, channel mapping, measured peak and RMS amplitude, normalization
 gain, output digest, and non-fatal warnings.
 
+### Compare two renders
+
+`GET /v1/renders/{render_id}/diff/{other_render_id}`
+
+The diff is a strictly read-only comparison of two completed renders. It never
+transitions a job, writes metadata, or touches an output file, so comparing
+two renders leaves both unchanged and repeated calls return the same report.
+
+For two outputs that share a PCM format, the response reports whether the
+audio is `identical` or `different`, and when different it locates the first
+diverging frame and channel together with both signed 16-bit PCM values, or a
+`length` boundary when one output ends first:
+
+```json
+{
+  "status": "different",
+  "comparable": true,
+  "audio_identical": false,
+  "left": {
+    "render_id": "render_a",
+    "timeline_id": "timeline_01",
+    "state": "completed",
+    "schema_version": 1,
+    "sample_rate": 48000,
+    "channels": 2,
+    "bits_per_sample": 16,
+    "frame_count": 19200,
+    "byte_count": 76844,
+    "digest": "aef6..."
+  },
+  "right": {
+    "render_id": "render_b",
+    "timeline_id": "timeline_02",
+    "state": "completed",
+    "schema_version": 1,
+    "sample_rate": 48000,
+    "channels": 2,
+    "bits_per_sample": 16,
+    "frame_count": 19200,
+    "byte_count": 76844,
+    "digest": "9db9..."
+  },
+  "version_match": true,
+  "compared_frames": 19200,
+  "first_difference": {
+    "kind": "sample_value",
+    "frame_index": 1,
+    "channel": 0,
+    "sample_index": 2,
+    "left_value": 642,
+    "right_value": 808
+  }
+}
+```
+
+A different sample rate, channel count, or sample width is a formatting fact,
+not an audio difference. Such pairs return `status: "not_comparable"` with a
+stable `reason_code` of `render_format_mismatch` and the exact mismatching
+facts in `format_mismatches`, rather than a misleading sample-level verdict.
+The same `not_comparable` status, each with its own reason code, is returned
+for renders that are not finished (`render_not_completed`), that failed
+(`render_failed`), whose output artifacts have been cleaned from disk
+(`render_artifacts_missing`), whose output no longer matches its receipt digest
+(`render_output_integrity_error`), or that cannot be decoded
+(`render_output_unreadable`). Unknown render identifiers still return the
+standard `404` error envelope.
+
+
 ## Data directory
 
 ```text
@@ -187,6 +255,7 @@ Run each declared production check from the repository root:
 go run ./cmd/timelinecheck -workflow ingest-audio-source
 go run ./cmd/timelinecheck -workflow compose-timeline
 go run ./cmd/timelinecheck -workflow render-mixdown
+go run ./cmd/timelinecheck -workflow compare-renders
 ```
 
 Each check creates an isolated temporary data directory, starts the real HTTP

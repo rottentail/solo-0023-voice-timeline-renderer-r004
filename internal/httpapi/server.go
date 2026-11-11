@@ -47,4 +47,5 @@ func (server *Server) routes() {
 	server.router.HandleFunc("GET /v1/renders/{id}", server.handleRenderRead)
 	server.router.HandleFunc("GET /v1/renders/{id}/receipt", server.handleReceiptRead)
 	server.router.HandleFunc("GET /v1/renders/{id}/output", server.handleOutputRead)
+	server.router.HandleFunc("GET /v1/renders/{id}/diff/{other_id}", server.handleRenderDiff)
 }
